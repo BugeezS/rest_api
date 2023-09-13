@@ -7,7 +7,13 @@ load_dotenv()
 app = Flask(__name__)
 
 url = os.getenv("DATABASE_URL")
-connection = psycopg2.connect(url)
+connection = conn = psycopg2.connect(
+    "host='localhost' "
+    "port='5432' "
+    "dbname='cogip' "
+    "user='postgres' "
+    "password='Pianos123.'"
+)
 
 CREATE_COMPANY_TABLE = (
     "CREATE TABLE IF NOT EXISTS company ("
