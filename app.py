@@ -57,13 +57,46 @@ INSERT_USERS = (
     "(username, password, role) "
     "VALUES (%s, %s, %s) RETURNING id;"
 )
+CREATE_CONTACT_TABLE = (
+    "CREATE TABLE IF NOT EXISTS contact ("
+    "id SERIAL PRIMARY KEY,"
+    "firstname VARCHAR(255) NOT NULL,"
+    "lastname VARCHAR(255) NOT NULL,"
+    "phone VARCHAR(15) NOT NULL,"
+    "email VARCHAR(255) NOT NULL,"
+    "timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+    "contact_company_id INTEGER REFERENCES company (id)"
+    ");"
+)
+
+INSERT_CONTACTS = (
+    "INSERT INTO contact "
+    "(firstname, lastname, phone, email) "
+    "VALUES (%s, %s, %s, %s) RETURNING id;"
+)
+CREATE_INVOICE_TABLE = (
+    "CREATE TABLE IF NOT EXISTS invoice ("
+    "id SERIAL PRIMARY KEY,"
+    "timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+    "invoice_company_id INTEGER REFERENCES company (id),"
+    "invoice_contact_id INTEGER REFERENCES contact (id)"
+    ");"
+)
+INSERT_INVOICES = (
+    "INSERT INTO invoice "
+    "(number) "
+    "VALUES (%s) RETURNING id;"
+)
 
 JWT_EXPIRATION_DELTA = datetime.timedelta(minutes=30)
+
+
 def authenticate_user(username, password):
     try:
         with connection:
             with connection.cursor() as cursor:
-                cursor.execute("SELECT username, role FROM users WHERE username = %s AND password = %s", (username, password))
+                cursor.execute("SELECT username, role FROM users WHERE username = %s AND password = %s",
+                               (username, password))
                 user = cursor.fetchone()
                 if user:
                     return user
@@ -73,7 +106,6 @@ def authenticate_user(username, password):
         return None
 
 
-
 def token_required(allowed_roles):
     def decorator(f):
         @wraps(f)
@@ -81,7 +113,6 @@ def token_required(allowed_roles):
             token = request.headers.get('Authorization')
 
             if not token:
-                # Check if the token is provided as a query parameter
                 token = request.args.get('token')
 
             if not token:
@@ -94,10 +125,8 @@ def token_required(allowed_roles):
                 data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
                 username = data.get('username')
 
-                # Fetch the user's role from the database
                 user_role = get_user_role(username)
 
-                # Check if the user's role is allowed
                 if user_role in allowed_roles:
                     return f(*args, **kwargs)
                 else:
@@ -112,6 +141,9 @@ def token_required(allowed_roles):
 
     return decorator
 
+    return decorator
+
+
 def get_user_role(username):
     try:
         with connection:
@@ -123,13 +155,10 @@ def get_user_role(username):
                 else:
                     return None
     except psycopg2.Error as e:
-        # Handle the database error appropriately, e.g., log the error or return an error response.
         return None
 
 
-
-
-@app.route("/api/login", methods=['POST'])  # Changed to POST method to accept JSON data
+@app.route("/api/login", methods=['POST'])
 def login():
     data = request.get_json()
     auth_username = data.get('username')
@@ -146,7 +175,7 @@ def login():
 
 
 @app.route('/api/company', methods=['POST'])
-@token_required(['admin'])
+@token_required(['admin', 'accountant'])
 def create_company():
     data = request.get_json()
     name = data["name"]
@@ -162,6 +191,113 @@ def create_company():
         return jsonify({"id": company_id, "message": f"Company {name} created"}), 201
     except psycopg2.Error as e:
         return jsonify({"message": "Failed to create company"}), 500
+
+
+@app.route('/api/companies', methods=['GET'])
+@token_required(['admin', 'accountant', 'intern'])
+def get_companies():
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id, name, country, vat, type FROM company")
+                companies = cursor.fetchall()
+                company_list = []
+                for company in companies:
+                    company_dict = {
+                        'id': company[0],
+                        'name': company[1],
+                        'country': company[2],
+                        'vat': company[3],
+                        'type': company[4]
+                    }
+                    company_list.append(company_dict)
+
+                return jsonify({'companies': company_list}), 200
+    except psycopg2.Error as e:
+        return jsonify({'message': 'Failed to retrieve companies'}), 500
+
+@app.route('/api/contact', methods=['POST'])
+@token_required(['admin', 'accountant', 'intern'])
+def create_contact():
+    data = request.get_json()
+    firstname = data.get('firstname')
+    lastname = data.get('lastname')
+    phone = data.get('phone')
+    email = data.get('email')
+    contact_company_id = data.get('contact_company_id')
+
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute("INSERT INTO contact (firstname, lastname, phone, email, contact_company_id) VALUES (%s, %s, %s, %s, %s) RETURNING id;",
+                               (firstname, lastname, phone, email, contact_company_id))
+                contact_id = cursor.fetchone()[0]
+        return jsonify({"id": contact_id, "message": f"Contact {firstname} {lastname} created"}), 201
+    except psycopg2.Error as e:
+        return jsonify({"message": "Failed to create contact"}), 500
+
+@app.route('/api/contacts', methods=['GET'])
+@token_required(['admin', 'accountant', 'intern'])
+def get_contacts():
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id, firstname, lastname, phone, email, timestamp, contact_company_id FROM contact")
+                contacts = cursor.fetchall()
+                contact_list = []
+                for contact in contacts:
+                    contact_dict = {
+                        'id': contact[0],
+                        'firstname': contact[1],
+                        'lastname': contact[2],
+                        'phone': contact[3],
+                        'email': contact[4],
+                        'timestamp': contact[5],
+                        'contact_company_id': contact[6]
+                    }
+                    contact_list.append(contact_dict)
+
+                return jsonify({'contacts': contact_list}), 200
+    except psycopg2.Error as e:
+        return jsonify({'message': 'Failed to retrieve contacts'}), 500
+@app.route('/api/invoice', methods=['POST'])
+@token_required(['admin', 'accountant'])
+def create_invoice():
+    data = request.get_json()
+    invoice_company_id = data.get('invoice_company_id')
+    invoice_contact_id = data.get('invoice_contact_id')
+
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute("INSERT INTO invoice (invoice_company_id, invoice_contact_id) VALUES (%s, %s) RETURNING id;",
+                               (invoice_company_id, invoice_contact_id))
+                invoice_id = cursor.fetchone()[0]
+        return jsonify({"id": invoice_id, "message": "Invoice created"}), 201
+    except psycopg2.Error as e:
+        return jsonify({"message": "Failed to create invoice"}), 500
+
+@app.route('/api/invoices', methods=['GET'])
+@token_required(['admin', 'accountant', 'intern'])
+def get_invoices():
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id, timestamp, invoice_company_id, invoice_contact_id FROM invoice")
+                invoices = cursor.fetchall()
+                invoice_list = []
+                for invoice in invoices:
+                    invoice_dict = {
+                        'id': invoice[0],
+                        'timestamp': invoice[1],
+                        'invoice_company_id': invoice[2],
+                        'invoice_contact_id': invoice[3]
+                    }
+                    invoice_list.append(invoice_dict)
+
+                return jsonify({'invoices': invoice_list}), 200
+    except psycopg2.Error as e:
+        return jsonify({'message': 'Failed to retrieve invoices'}), 500
 
 @app.route('/api/user', methods=['POST'])
 @token_required(['admin'])
@@ -181,9 +317,30 @@ def create_user():
         return jsonify({"message": "Failed to create user"}), 500
 
 
+@app.route('/api/users', methods=['GET'])
+@token_required(['admin', 'accountant'])
+def get_users():
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id, username, role FROM users")
+                users = cursor.fetchall()
+                user_list = []
+                for user in users:
+                    user_dict = {
+                        'id': user[0],
+                        'username': user[1],
+                        'role': user[2]
+                    }
+                    user_list.append(user_dict)
+
+                return jsonify({'users': user_list}), 200
+    except psycopg2.Error as e:
+        return jsonify({'message': 'Failed to retrieve users'}), 500
+
+
 if __name__ == '__main__':
     try:
         app.run(debug=True)
     finally:
-        # Close the database connection when the application exits
         connection.close()
