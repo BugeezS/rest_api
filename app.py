@@ -1,15 +1,22 @@
 from functools import wraps
-from flask import Flask, request, jsonify, make_response
+
+from flask_cors import CORS
+from flask import Flask, request, jsonify, make_response, session, redirect, url_for
 import os
 import psycopg2
 from dotenv import load_dotenv
 import jwt
 import datetime
 
+from sqlalchemy.orm import Session
+
 load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+app.config['SESSION_TYPE'] = 'filesystem'
+Session(app)
+CORS(app)
 
 db_host = os.getenv('DATABASE_HOST')
 db_port = os.getenv('DATABASE_PORT')
@@ -141,8 +148,13 @@ def token_required(allowed_roles):
 
     return decorator
 
-    return decorator
-
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'token' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 def get_user_role(username):
     try:
@@ -169,6 +181,7 @@ def login():
         username, _ = user
         token_payload = {'username': username, 'exp': datetime.datetime.utcnow() + JWT_EXPIRATION_DELTA}
         token = jwt.encode(token_payload, app.config['SECRET_KEY'], algorithm='HS256')
+        session['token'] = token
         return jsonify({'token': token}), 200
 
     return make_response('Could not verify', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
@@ -176,6 +189,7 @@ def login():
 
 @app.route('/api/company', methods=['POST'])
 @token_required(['admin', 'accountant'])
+@login_required
 def create_company():
     data = request.get_json()
     name = data["name"]
@@ -195,6 +209,7 @@ def create_company():
 
 @app.route('/api/companies', methods=['GET'])
 @token_required(['admin', 'accountant', 'intern'])
+@login_required
 def get_companies():
     try:
         with connection:
