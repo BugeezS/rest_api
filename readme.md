@@ -31,7 +31,7 @@ Set up a PostgreSQL database and configure the connection details in a .env file
 
 
 
-    ```cp .env.example .env```
+    cp .env.example .env
 
 Modify the .env file to set your PostgreSQL database credentials and other configuration options.
 
@@ -39,7 +39,7 @@ Initialize the database schema by running the following command:
 
 
 
-    ```python initialize_database.py```
+    python initialize_database.py
 
 Start the Flask application:
 
